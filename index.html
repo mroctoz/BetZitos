@@ -448,7 +448,7 @@
             );
         };
 
-/* ============= CRASH GAME (HEADER PADRÃO & MULTIPLICADOR LENTO) ============= */
+/* ============= CRASH GAME (COM VISUALIZAÇÃO DO FINAL) ============= */
         const CrashGame = ({ balance, onUpdateBalance, onGameEnd }) => {
             const [betAmount, setBetAmount] = useState(10);
             const [multiplier, setMultiplier] = useState(1.00);
@@ -457,6 +457,7 @@
             const [autoCashout, setAutoCashout] = useState(10);
             const [showAutoCashout, setShowAutoCashout] = useState(false);
             const [isProcessingCashout, setIsProcessingCashout] = useState(false);
+            const [userCashedOutAt, setUserCashedOutAt] = useState(null); // Novo estado: guarda onde você saiu
             
             const [history, setHistory] = useState([1.20, 5.43, 1.02, 22.05, 3.10]); 
             
@@ -483,7 +484,6 @@
                 const dpr = window.devicePixelRatio || 1;
                 const rect = canvas.getBoundingClientRect();
                 
-                // Configuração de DPI e Tamanho
                 if (canvas.width !== rect.width * dpr || canvas.height !== rect.height * dpr) {
                     canvas.width = rect.width * dpr;
                     canvas.height = rect.height * dpr;
@@ -493,7 +493,6 @@
                 const width = rect.width;
                 const height = rect.height;
                 
-                // Limpa e Fundo
                 ctx.clearRect(0, 0, width, height);
                 const bgGradient = ctx.createLinearGradient(0, 0, 0, height);
                 bgGradient.addColorStop(0, '#0f0f15'); 
@@ -501,7 +500,7 @@
                 ctx.fillStyle = bgGradient;
                 ctx.fillRect(0, 0, width, height);
                 
-                // Grid (Grade Fixa)
+                // Grid
                 ctx.lineWidth = 1;
                 ctx.strokeStyle = 'rgba(255, 255, 255, 0.05)';
                 const gridSize = 50;
@@ -518,26 +517,20 @@
                     return;
                 }
 
-                // --- LÓGICA DE ESCALA DINÂMICA (O SEGREDO PARA VER TUDO) ---
-                // Pega o último ponto ou usa valores mínimos para começar
+                const time = (Date.now() - startTimeRef.current) / 1000;
                 const lastPoint = pointsRef.current[pointsRef.current.length - 1] || { t: 0, v: 0 };
                 
-                // Define o "Zoom" da tela. 
-                // X: Mínimo 6 segundos, ou o tempo atual + 10% de margem
                 const maxTime = Math.max(6, lastPoint.t * 1.1);
-                // Y: Mínimo 2x, ou o multiplicador atual + 10% de margem
                 const maxVal = Math.max(1, lastPoint.v * 1.1);
 
-                // Funções para converter Valor -> Pixel
                 const getX = (t) => (t / maxTime) * width;
-                const getY = (v) => height - (v / maxVal) * (height * 0.8) - 20; // 0.8 pra não bater no teto, -20 margem
+                const getY = (v) => height - (v / maxVal) * (height * 0.8) - 20;
 
-                // 2. Desenhar a Linha (Rastro Completo)
+                // Desenha a Linha
                 if (pointsRef.current.length > 1) {
                     ctx.beginPath();
-                    ctx.moveTo(0, height - 20); // Começa no canto inferior esquerdo
+                    ctx.moveTo(0, height - 20);
 
-                    // Desenha curva suave
                     for (let i = 0; i < pointsRef.current.length - 1; i++) {
                         const pCurrent = pointsRef.current[i];
                         const pNext = pointsRef.current[i+1];
@@ -547,7 +540,6 @@
                         const cp2x = getX(pCurrent.t + (pNext.t - pCurrent.t) / 2);
                         const cp2y = getY(pNext.v);
                         
-                        // Curva Bézier para suavidade
                         ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, getX(pNext.t), getY(pNext.v));
                     }
 
@@ -557,13 +549,11 @@
                     ctx.lineCap = 'round';
                     ctx.stroke();
 
-                    // Brilho Neon
                     ctx.shadowColor = lineColor;
                     ctx.shadowBlur = 15;
                     ctx.stroke();
                     ctx.shadowBlur = 0;
 
-                    // Preenchimento (Área sob o gráfico)
                     ctx.lineTo(getX(lastPoint.t), height);
                     ctx.lineTo(0, height);
                     ctx.closePath();
@@ -574,15 +564,14 @@
                     ctx.fill();
                 }
 
-                // 3. Desenhar Foguete na ponta
+                // Desenhar Foguete
                 const rocketX = getX(lastPoint.t);
                 const rocketY = getY(lastPoint.v);
 
                 ctx.save();
                 ctx.translate(rocketX, rocketY);
 
-                // Calcular rotação
-                let angle = -Math.PI / 4; // 45 graus padrão
+                let angle = -Math.PI / 4; 
                 if (pointsRef.current.length > 5) {
                     const p1 = pointsRef.current[pointsRef.current.length - 5];
                     const p2 = lastPoint;
@@ -601,7 +590,6 @@
                     const scale = 0.7;
                     ctx.scale(scale, scale);
                     
-                    // Fogo
                     if (currentStatus === 'FLYING') {
                         const flicker = Math.random() * 10;
                         ctx.fillStyle = '#f59e0b';
@@ -612,19 +600,16 @@
                         ctx.fill();
                     }
 
-                    // Corpo do Foguete
                     ctx.fillStyle = '#e2e8f0';
                     ctx.beginPath();
                     ctx.ellipse(0, 0, 30, 12, 0, 0, Math.PI * 2);
                     ctx.fill();
                     
-                    // Janela
                     ctx.fillStyle = '#3b82f6';
                     ctx.beginPath();
                     ctx.arc(10, 0, 5, 0, Math.PI * 2);
                     ctx.fill();
 
-                    // Asas
                     ctx.fillStyle = '#db2777';
                     ctx.beginPath();
                     ctx.moveTo(-10, -12);
@@ -651,6 +636,7 @@
                 setCountdown(3);
                 pointsRef.current = [];
                 setIsProcessingCashout(false);
+                setUserCashedOutAt(null); // Reseta o estado de saque
                 
                 let count = 3;
                 const timer = setInterval(() => {
@@ -668,7 +654,6 @@
                 statusRef.current = 'FLYING';
                 setMultiplier(1.00);
                 startTimeRef.current = Date.now();
-                // Reset com ponto inicial (tempo 0, valor 0)
                 pointsRef.current = [{ t: 0, v: 0 }];
                 
                 const r = Math.random();
@@ -681,23 +666,21 @@
                 crashPointRef.current = crashAt;
                 
                 const loop = () => {
-                    if (statusRef.current !== 'FLYING') return;
+                    if (statusRef.current === 'CRASHED' || statusRef.current === 'IDLE') return;
 
                     const now = Date.now();
                     const elapsedSeconds = (now - startTimeRef.current) / 1000;
                     
-                    // Curva mais lenta conforme pedido
-                    const currentMult = Math.exp(0.04 * elapsedSeconds);
-                    
-                    // Salva dados brutos (Tempo vs Altura Relativa)
+                    const currentMult = Math.exp(0.035 * elapsedSeconds);
                     pointsRef.current.push({ t: elapsedSeconds, v: currentMult - 1 });
                     
                     setMultiplier(currentMult);
                     drawGraph(currentMult, 'FLYING');
 
-                    if (showAutoCashout && currentMult >= autoCashout) {
+                    // Lógica de Auto Cashout (se não tiver sacado ainda)
+                    if (showAutoCashout && currentMult >= autoCashout && statusRef.current === 'FLYING' && !cashoutTimerRef.current) {
+                        // Verificação extra para não sacar 2x
                         handleSuccessCashout(currentMult);
-                        return;
                     }
 
                     if (currentMult >= crashPointRef.current) {
@@ -720,15 +703,26 @@
                 drawGraph(crashPointRef.current, 'CRASHED');
                 
                 setHistory(prev => [crashPointRef.current, ...prev.slice(0, 4)]);
-                onGameEnd(`💥 Explodiu em ${crashPointRef.current.toFixed(2)}x`, "error");
+                
+                // Mensagem de fim de jogo
+                // Se o usuário sacou, a mensagem já foi dada no saque
+                if (!cashoutTimerRef.current && !userCashedOutAt) {
+                     onGameEnd(`💥 Explodiu em ${crashPointRef.current.toFixed(2)}x! Você perdeu.`, "error");
+                }
             };
 
             const handleCashoutRequest = () => {
-                if (statusRef.current !== 'FLYING' || isProcessingCashout) return;
+                // Impede clique duplo ou saque se já explodiu
+                if (statusRef.current !== 'FLYING' || isProcessingCashout || userCashedOutAt) return;
+                
                 setIsProcessingCashout(true);
                 const lockedMultiplier = multiplier; 
                 
-                cashoutTimerRef.current = setTimeout(() => {
+                // Marca que o usuário já pediu o saque para evitar auto-cashout por cima
+                cashoutTimerRef.current = true; // Flag temporária
+
+                setTimeout(() => {
+                    // Verifica se ainda está voando (não crashou durante o delay)
                     if (statusRef.current === 'FLYING') {
                         handleSuccessCashout(lockedMultiplier);
                     }
@@ -736,17 +730,14 @@
             };
 
             const handleSuccessCashout = (finalMult) => {
-                statusRef.current = 'IDLE'; 
-                setGameState('IDLE');
-                cancelAnimationFrame(animationRef.current);
+                // NÃO MUDAMOS O statusRef.current para 'IDLE'. Deixamos continuar 'FLYING'.
+                // Apenas marcamos que o usuário saiu.
                 setIsProcessingCashout(false);
+                setUserCashedOutAt(finalMult); // Usuário saiu aqui
                 
                 const winAmount = betAmount * finalMult;
                 onUpdateBalance(winAmount);
-                setHistory(prev => [finalMult, ...prev.slice(0, 4)]);
-                onGameEnd(`✅ Ganhou R$ ${winAmount.toFixed(2)} (${finalMult.toFixed(2)}x)`, "success");
-                
-                setTimeout(() => drawGraph(1.00, 'IDLE'), 100);
+                onGameEnd(`✅ Você saiu em ${finalMult.toFixed(2)}x! Ganhou R$ ${winAmount.toFixed(2)}`, "success");
             };
 
             useEffect(() => {
@@ -764,7 +755,6 @@
 
             return (
                 <div className="max-w-6xl mx-auto space-y-6 animate-fade-in-up pb-10">
-                    {/* Header Padronizado (Mesmo estilo do Double/Tiger) */}
                     <div className="glass-panel rounded-2xl p-6 border-gradient">
                         <div className="flex flex-col lg:flex-row justify-between items-center gap-6">
                             <div className="flex items-center gap-4">
@@ -780,7 +770,6 @@
                                 </div>
                             </div>
                             
-                            {/* Histórico Integrado no Header */}
                             <div className="flex items-center gap-3 bg-gray-900/50 rounded-xl p-3 border border-gray-800 overflow-x-auto no-scrollbar max-w-full">
                                 <span className="text-xs text-gray-500 uppercase tracking-wider mr-2 whitespace-nowrap">Recentes:</span>
                                 <div className="flex gap-2">
@@ -795,11 +784,9 @@
                     </div>
 
                     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                        {/* CONTROLES (Baixo no Mobile) */}
                         <div className="space-y-6 order-2 lg:order-1">
                             <div className="glass-panel rounded-2xl p-6">
                                 <div className="space-y-4">
-                                    {/* Input de Aposta */}
                                     <div>
                                         <div className="flex justify-between mb-2">
                                             <label className="text-sm text-gray-400">Valor da Aposta</label>
@@ -816,7 +803,6 @@
                                         </div>
                                     </div>
 
-                                    {/* Auto Cashout */}
                                     <div className="bg-gray-800/50 p-3 rounded-xl border border-gray-700/50">
                                         <div className="flex items-center justify-between">
                                             <div className="flex items-center gap-2">
@@ -835,27 +821,28 @@
                                         </div>
                                     </div>
 
-                                    {/* Botão de Ação */}
                                     <button 
                                         onClick={gameState === 'IDLE' || gameState === 'CRASHED' ? startGame : handleCashoutRequest}
-                                        disabled={gameState === 'COUNTDOWN' || isProcessingCashout}
+                                        disabled={gameState === 'COUNTDOWN' || isProcessingCashout || userCashedOutAt !== null}
                                         className={`w-full py-4 rounded-xl font-bold text-lg uppercase tracking-wide transition-all transform active:scale-[0.98] shadow-lg
                                             ${gameState === 'IDLE' || gameState === 'CRASHED'
                                                 ? 'bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white shadow-purple-900/40' 
-                                                : isProcessingCashout 
-                                                    ? 'bg-gray-600 text-gray-300 cursor-wait'
-                                                    : 'bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-400 hover:to-emerald-500 text-white shadow-emerald-900/40 animate-pulse-glow'
+                                                : userCashedOutAt
+                                                    ? 'bg-gray-700 text-green-400 border border-green-500/50' /* Estilo quando já sacou */
+                                                    : isProcessingCashout 
+                                                        ? 'bg-gray-600 text-gray-300 cursor-wait'
+                                                        : 'bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-400 hover:to-emerald-500 text-white shadow-emerald-900/40 animate-pulse-glow'
                                             }`}
                                     >
                                         {gameState === 'IDLE' || gameState === 'CRASHED' ? 'Começar Jogo' : 
                                          gameState === 'COUNTDOWN' ? 'Preparando...' : 
+                                         userCashedOutAt ? `SACADO EM ${userCashedOutAt.toFixed(2)}x` :
                                          isProcessingCashout ? 'Sacando...' : 
                                          `SACAR R$ ${(betAmount * multiplier).toFixed(2)}`}
                                     </button>
                                 </div>
                             </div>
 
-                            {/* Estatísticas */}
                             <div className="glass-panel rounded-2xl p-5">
                                 <h4 className="text-sm font-bold text-gray-400 mb-3 uppercase tracking-wider flex items-center gap-2">
                                     <i className="ph-chart-bar"></i> Probabilidades
@@ -877,17 +864,14 @@
                             </div>
                         </div>
                         
-                        {/* JOGO (Topo no Mobile) */}
                         <div className="lg:col-span-2 order-1 lg:order-2">
                             <div className="glass-panel rounded-2xl p-1 overflow-hidden h-full flex flex-col shadow-2xl">
-                                {/* CANVAS: Altura fixa para não sumir no mobile */}
                                 <div className="relative w-full rounded-xl overflow-hidden bg-[#0a0a0a] min-h-[350px] lg:h-[500px]">
                                     <canvas 
                                         ref={canvasRef} 
                                         className="w-full h-full absolute inset-0 block"
                                     />
                                     
-                                    {/* Overlay de Status (HUD) */}
                                     <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none select-none">
                                         {gameState === 'COUNTDOWN' && (
                                             <div className="text-8xl font-bold font-mono text-white animate-bounce drop-shadow-[0_0_15px_rgba(255,255,255,0.5)]">
@@ -903,7 +887,7 @@
                                                 
                                                 {gameState === 'CRASHED' && (
                                                     <div className="mt-4 px-6 py-2 bg-red-900/40 border border-red-500/50 rounded-full text-red-200 font-bold backdrop-blur-md animate-bounce">
-                                                        CRASHED
+                                                        EXPLODIU EM {crashPointRef.current.toFixed(2)}x
                                                     </div>
                                                 )}
                                                 
@@ -911,6 +895,13 @@
                                                     <div className="mt-4 text-purple-400 text-sm font-bold animate-pulse flex items-center gap-2 bg-black/30 px-3 py-1 rounded-full border border-purple-500/30">
                                                         <div className="w-2 h-2 bg-purple-400 rounded-full"></div>
                                                         AO VIVO
+                                                    </div>
+                                                )}
+
+                                                {/* Aviso de que você já saiu, mas o jogo continua */}
+                                                {userCashedOutAt && gameState === 'FLYING' && (
+                                                    <div className="mt-2 text-green-400 text-xs font-bold bg-green-900/30 px-3 py-1 rounded-full border border-green-500/30">
+                                                        VOCÊ SAIU EM {userCashedOutAt.toFixed(2)}x
                                                     </div>
                                                 )}
                                             </div>
