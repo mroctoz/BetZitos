@@ -1,4 +1,4 @@
-# MejoBet - Simulador Educacional
+# BetZitos - Simulador Educacional
 
 ⚠️ **DISCLAIMER IMPORTANTE:**
 - Este é um **simulador educacional** para demonstração de probabilidades
@@ -15,4 +15,5 @@ Demonstrar conceitos de probabilidade, estatística e como funcionam os jogos de
 - JavaScript puro
 
 ## Avisos Legais
+
 Este projeto é apenas para fins educacionais. O autor não se responsabiliza por qualquer uso indevido.
