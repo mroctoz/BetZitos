@@ -371,6 +371,7 @@
             const navItems = [
                 { id: 'LOBBY', icon: 'ph-house-simple', label: 'Início', gradient: 'from-blue-500 to-cyan-500' },
                 { id: 'GAME_CRASH', icon: 'ph-rocket-launch', label: 'Foguete', gradient: 'from-purple-500 to-pink-500' },
+                { id: 'GAME_PLINKO', icon: 'ph-dots-nine', label: 'Plinko', gradient: 'from-pink-500 to-rose-500' },
                 { id: 'GAME_DOUBLE', icon: 'ph-dice-five', label: 'Double', gradient: 'from-emerald-500 to-teal-500' },
                 { id: 'GAME_ROULETTE', icon: 'ph-circle-notch', label: 'Roleta', gradient: 'from-amber-500 to-orange-500' },
                 { id: 'GAME_MINES', icon: 'ph-bomb', label: 'Mines', gradient: 'from-red-500 to-rose-500' },
@@ -386,10 +387,10 @@
                         {/* Logo */}
                         <div className="h-24 flex items-center pl-6 border-b border-gray-800/50">
                             <div className="w-16 h-10 rounded-xl bg-gradient-to-br from-blue-600 to-purple-600 flex items-center justify-center shadow-lg">
-                                <span className="text-white font-bold text-lg">BetZ</span>
+                                <span className="text-white font-bold text-lg">Mejo</span>
                             </div>
                             <div className="ml-4">
-                                <h1 className="text-xl font-bold tracking-tight text-white">BetZitos</h1>
+                                <h1 className="text-xl font-bold tracking-tight text-white"></h1>
                                 <p className="text-xs text-gray-500">O Bet da Galera</p>
                             </div>
                         </div>
@@ -448,480 +449,487 @@
             );
         };
 
-/* ============= CRASH GAME (COM VISUALIZAÇÃO DO FINAL) ============= */
-        const CrashGame = ({ balance, onUpdateBalance, onGameEnd }) => {
-            const [betAmount, setBetAmount] = useState(10);
-            const [multiplier, setMultiplier] = useState(1.00);
-            const [gameState, setGameState] = useState('IDLE');
-            const [countdown, setCountdown] = useState(3);
-            const [autoCashout, setAutoCashout] = useState(10);
-            const [showAutoCashout, setShowAutoCashout] = useState(false);
-            const [isProcessingCashout, setIsProcessingCashout] = useState(false);
-            const [userCashedOutAt, setUserCashedOutAt] = useState(null); // Novo estado: guarda onde você saiu
+const CrashGame = ({ balance, onUpdateBalance, onGameEnd }) => {
+    const [betAmount, setBetAmount] = useState(10);
+    const [multiplier, setMultiplier] = useState(1.00);
+    const [gameState, setGameState] = useState('IDLE');
+    const [countdown, setCountdown] = useState(3);
+    const [autoCashout, setAutoCashout] = useState(10);
+    const [showAutoCashout, setShowAutoCashout] = useState(false);
+    const [isProcessingCashout, setIsProcessingCashout] = useState(false);
+    const [userCashedOutAt, setUserCashedOutAt] = useState(null);
+    
+    const [history, setHistory] = useState([1.20, 5.43, 1.02, 22.05, 3.10]); 
+    
+    const canvasRef = useRef(null);
+    const animationRef = useRef(null);
+    const crashPointRef = useRef(0);
+    const startTimeRef = useRef(0);
+    const pointsRef = useRef([]);
+    const cashoutTimerRef = useRef(null);
+    const statusRef = useRef('IDLE');
+
+    const handleBetChange = (value) => {
+        const num = parseFloat(value);
+        if (isNaN(num) || num < 1) setBetAmount(1);
+        else if (num > balance) setBetAmount(balance);
+        else setBetAmount(num);
+    };
+
+    const drawGraph = (currentMult, currentStatus) => {
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+        
+        const ctx = canvas.getContext('2d');
+        const dpr = window.devicePixelRatio || 1;
+        const rect = canvas.getBoundingClientRect();
+        
+        if (canvas.width !== rect.width * dpr || canvas.height !== rect.height * dpr) {
+            canvas.width = rect.width * dpr;
+            canvas.height = rect.height * dpr;
+            ctx.scale(dpr, dpr);
+        }
+
+        const width = rect.width;
+        const height = rect.height;
+        
+        ctx.clearRect(0, 0, width, height);
+        const bgGradient = ctx.createLinearGradient(0, 0, 0, height);
+        bgGradient.addColorStop(0, '#0f0f15'); 
+        bgGradient.addColorStop(1, '#181825'); 
+        ctx.fillStyle = bgGradient;
+        ctx.fillRect(0, 0, width, height);
+        
+        // Grid
+        ctx.lineWidth = 1;
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.05)';
+        const gridSize = 50;
+        ctx.beginPath();
+        for (let x = 0; x < width; x += gridSize) { ctx.moveTo(x, 0); ctx.lineTo(x, height); }
+        for (let y = 0; y < height; y += gridSize) { ctx.moveTo(0, y); ctx.lineTo(width, y); }
+        ctx.stroke();
+
+        if (currentStatus === 'IDLE' || currentStatus === 'COUNTDOWN') {
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+            ctx.font = '14px Inter';
+            ctx.textAlign = 'center';
+            ctx.fillText("Aguardando decolagem...", width / 2, height / 2);
+            return;
+        }
+
+        const time = (Date.now() - startTimeRef.current) / 1000;
+        const lastPoint = pointsRef.current[pointsRef.current.length - 1] || { t: 0, v: 0 };
+        
+        const maxTime = Math.max(6, lastPoint.t * 1.1);
+        const maxVal = Math.max(1, lastPoint.v * 1.1);
+
+        const getX = (t) => (t / maxTime) * width;
+        const getY = (v) => height - (v / maxVal) * (height * 0.8) - 20;
+
+        // Desenha a Linha
+        if (pointsRef.current.length > 1) {
+            ctx.beginPath();
+            ctx.moveTo(0, height - 20);
+
+            for (let i = 0; i < pointsRef.current.length - 1; i++) {
+                const pCurrent = pointsRef.current[i];
+                const pNext = pointsRef.current[i+1];
+                
+                const cp1x = getX(pCurrent.t + (pNext.t - pCurrent.t) / 2);
+                const cp1y = getY(pCurrent.v);
+                const cp2x = getX(pCurrent.t + (pNext.t - pCurrent.t) / 2);
+                const cp2y = getY(pNext.v);
+                
+                ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, getX(pNext.t), getY(pNext.v));
+            }
+
+            const lineColor = currentStatus === 'CRASHED' ? '#ef4444' : '#a855f7';
+            ctx.strokeStyle = lineColor;
+            ctx.lineWidth = 4;
+            ctx.lineCap = 'round';
+            ctx.stroke();
+
+            ctx.shadowColor = lineColor;
+            ctx.shadowBlur = 15;
+            ctx.stroke();
+            ctx.shadowBlur = 0;
+
+            ctx.lineTo(getX(lastPoint.t), height);
+            ctx.lineTo(0, height);
+            ctx.closePath();
+            const grad = ctx.createLinearGradient(0, 0, 0, height);
+            grad.addColorStop(0, 'rgba(168, 85, 247, 0.0)');
+            grad.addColorStop(1, currentStatus === 'CRASHED' ? 'rgba(239, 68, 68, 0.2)' : 'rgba(168, 85, 247, 0.2)');
+            ctx.fillStyle = grad;
+            ctx.fill();
+        }
+
+        // Desenhar Foguete
+        const rocketX = getX(lastPoint.t);
+        const rocketY = getY(lastPoint.v);
+
+        ctx.save();
+        ctx.translate(rocketX, rocketY);
+
+        let angle = -Math.PI / 4; 
+        if (pointsRef.current.length > 5) {
+            const p1 = pointsRef.current[pointsRef.current.length - 5];
+            const p2 = lastPoint;
+            const dy = getY(p2.v) - getY(p1.v);
+            const dx = getX(p2.t) - getX(p1.t);
+            angle = Math.atan2(dy, dx);
+        }
+        ctx.rotate(angle);
+
+        if (currentStatus === 'CRASHED') {
+            ctx.font = '40px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('💥', 0, 0);
+        } else {
+            const scale = 0.7;
+            ctx.scale(scale, scale);
             
-            const [history, setHistory] = useState([1.20, 5.43, 1.02, 22.05, 3.10]); 
-            
-            const canvasRef = useRef(null);
-            const animationRef = useRef(null);
-            const crashPointRef = useRef(0);
-            const startTimeRef = useRef(0);
-            const pointsRef = useRef([]);
-            const cashoutTimerRef = useRef(null);
-            const statusRef = useRef('IDLE');
-
-            const handleBetChange = (value) => {
-                const num = parseFloat(value);
-                if (isNaN(num) || num < 1) setBetAmount(1);
-                else if (num > balance) setBetAmount(balance);
-                else setBetAmount(num);
-            };
-
-            const drawGraph = (currentMult, currentStatus) => {
-                const canvas = canvasRef.current;
-                if (!canvas) return;
-                
-                const ctx = canvas.getContext('2d');
-                const dpr = window.devicePixelRatio || 1;
-                const rect = canvas.getBoundingClientRect();
-                
-                if (canvas.width !== rect.width * dpr || canvas.height !== rect.height * dpr) {
-                    canvas.width = rect.width * dpr;
-                    canvas.height = rect.height * dpr;
-                    ctx.scale(dpr, dpr);
-                }
-
-                const width = rect.width;
-                const height = rect.height;
-                
-                ctx.clearRect(0, 0, width, height);
-                const bgGradient = ctx.createLinearGradient(0, 0, 0, height);
-                bgGradient.addColorStop(0, '#0f0f15'); 
-                bgGradient.addColorStop(1, '#181825'); 
-                ctx.fillStyle = bgGradient;
-                ctx.fillRect(0, 0, width, height);
-                
-                // Grid
-                ctx.lineWidth = 1;
-                ctx.strokeStyle = 'rgba(255, 255, 255, 0.05)';
-                const gridSize = 50;
+            if (currentStatus === 'FLYING') {
+                const flicker = Math.random() * 10;
+                ctx.fillStyle = '#f59e0b';
                 ctx.beginPath();
-                for (let x = 0; x < width; x += gridSize) { ctx.moveTo(x, 0); ctx.lineTo(x, height); }
-                for (let y = 0; y < height; y += gridSize) { ctx.moveTo(0, y); ctx.lineTo(width, y); }
-                ctx.stroke();
+                ctx.moveTo(-20, -5);
+                ctx.lineTo(-45 - flicker, 0);
+                ctx.lineTo(-20, 5);
+                ctx.fill();
+            }
 
-                if (currentStatus === 'IDLE' || currentStatus === 'COUNTDOWN') {
-                    ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
-                    ctx.font = '14px Inter';
-                    ctx.textAlign = 'center';
-                    ctx.fillText("Aguardando decolagem...", width / 2, height / 2);
-                    return;
-                }
+            ctx.fillStyle = '#e2e8f0';
+            ctx.beginPath();
+            ctx.ellipse(0, 0, 30, 12, 0, 0, Math.PI * 2);
+            ctx.fill();
+            
+            ctx.fillStyle = '#3b82f6';
+            ctx.beginPath();
+            ctx.arc(10, 0, 5, 0, Math.PI * 2);
+            ctx.fill();
 
-                const time = (Date.now() - startTimeRef.current) / 1000;
-                const lastPoint = pointsRef.current[pointsRef.current.length - 1] || { t: 0, v: 0 };
-                
-                const maxTime = Math.max(6, lastPoint.t * 1.1);
-                const maxVal = Math.max(1, lastPoint.v * 1.1);
+            ctx.fillStyle = '#db2777';
+            ctx.beginPath();
+            ctx.moveTo(-10, -12);
+            ctx.lineTo(-25, -20);
+            ctx.lineTo(-5, -5);
+            ctx.fill();
+            ctx.beginPath();
+            ctx.moveTo(-10, 12);
+            ctx.lineTo(-25, 20);
+            ctx.lineTo(-5, 5);
+            ctx.fill();
+        }
+        ctx.restore();
+    };
 
-                const getX = (t) => (t / maxTime) * width;
-                const getY = (v) => height - (v / maxVal) * (height * 0.8) - 20;
+    const startGame = () => {
+        if (betAmount < 1 || betAmount > balance) {
+            onGameEnd("Saldo insuficiente", "error");
+            return;
+        }
+        onUpdateBalance(-betAmount);
+        setGameState('COUNTDOWN');
+        statusRef.current = 'COUNTDOWN';
+        setCountdown(3);
+        pointsRef.current = [];
+        setIsProcessingCashout(false);
+        setUserCashedOutAt(null);
+        
+        let count = 3;
+        const timer = setInterval(() => {
+            count--;
+            setCountdown(count);
+            if (count <= 0) {
+                clearInterval(timer);
+                launchRocket();
+            }
+        }, 1000);
+    };
 
-                // Desenha a Linha
-                if (pointsRef.current.length > 1) {
-                    ctx.beginPath();
-                    ctx.moveTo(0, height - 20);
+    const launchRocket = () => {
+        setGameState('FLYING');
+        statusRef.current = 'FLYING';
+        setMultiplier(1.00);
+        startTimeRef.current = Date.now();
+        pointsRef.current = [{ t: 0, v: 0 }];
+        
+        const r = Math.random();
+        const houseEdge = 0.04; 
+        let crashAt = 1.00;
+        
+        if (r >= houseEdge) {
+            crashAt = Math.max(1.00, (0.96) / (1 - r));
+        }
+        crashPointRef.current = crashAt;
+        
+        const loop = () => {
+            if (statusRef.current === 'CRASHED' || statusRef.current === 'IDLE') return;
 
-                    for (let i = 0; i < pointsRef.current.length - 1; i++) {
-                        const pCurrent = pointsRef.current[i];
-                        const pNext = pointsRef.current[i+1];
-                        
-                        const cp1x = getX(pCurrent.t + (pNext.t - pCurrent.t) / 2);
-                        const cp1y = getY(pCurrent.v);
-                        const cp2x = getX(pCurrent.t + (pNext.t - pCurrent.t) / 2);
-                        const cp2y = getY(pNext.v);
-                        
-                        ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, getX(pNext.t), getY(pNext.v));
-                    }
+            const now = Date.now();
+            const elapsedSeconds = (now - startTimeRef.current) / 1000;
+            
+            const currentMult = Math.exp(0.035 * elapsedSeconds);
+            pointsRef.current.push({ t: elapsedSeconds, v: currentMult - 1 });
+            
+            setMultiplier(currentMult);
+            drawGraph(currentMult, 'FLYING');
 
-                    const lineColor = currentStatus === 'CRASHED' ? '#ef4444' : '#a855f7';
-                    ctx.strokeStyle = lineColor;
-                    ctx.lineWidth = 4;
-                    ctx.lineCap = 'round';
-                    ctx.stroke();
+            // Lógica de Auto Cashout (se não tiver sacado ainda)
+            if (showAutoCashout && currentMult >= autoCashout && statusRef.current === 'FLYING' && !cashoutTimerRef.current) {
+                handleSuccessCashout(currentMult);
+            }
 
-                    ctx.shadowColor = lineColor;
-                    ctx.shadowBlur = 15;
-                    ctx.stroke();
-                    ctx.shadowBlur = 0;
-
-                    ctx.lineTo(getX(lastPoint.t), height);
-                    ctx.lineTo(0, height);
-                    ctx.closePath();
-                    const grad = ctx.createLinearGradient(0, 0, 0, height);
-                    grad.addColorStop(0, 'rgba(168, 85, 247, 0.0)');
-                    grad.addColorStop(1, currentStatus === 'CRASHED' ? 'rgba(239, 68, 68, 0.2)' : 'rgba(168, 85, 247, 0.2)');
-                    ctx.fillStyle = grad;
-                    ctx.fill();
-                }
-
-                // Desenhar Foguete
-                const rocketX = getX(lastPoint.t);
-                const rocketY = getY(lastPoint.v);
-
-                ctx.save();
-                ctx.translate(rocketX, rocketY);
-
-                let angle = -Math.PI / 4; 
-                if (pointsRef.current.length > 5) {
-                    const p1 = pointsRef.current[pointsRef.current.length - 5];
-                    const p2 = lastPoint;
-                    const dy = getY(p2.v) - getY(p1.v);
-                    const dx = getX(p2.t) - getX(p1.t);
-                    angle = Math.atan2(dy, dx);
-                }
-                ctx.rotate(angle);
-
-                if (currentStatus === 'CRASHED') {
-                    ctx.font = '40px sans-serif';
-                    ctx.textAlign = 'center';
-                    ctx.textBaseline = 'middle';
-                    ctx.fillText('💥', 0, 0);
-                } else {
-                    const scale = 0.7;
-                    ctx.scale(scale, scale);
-                    
-                    if (currentStatus === 'FLYING') {
-                        const flicker = Math.random() * 10;
-                        ctx.fillStyle = '#f59e0b';
-                        ctx.beginPath();
-                        ctx.moveTo(-20, -5);
-                        ctx.lineTo(-45 - flicker, 0);
-                        ctx.lineTo(-20, 5);
-                        ctx.fill();
-                    }
-
-                    ctx.fillStyle = '#e2e8f0';
-                    ctx.beginPath();
-                    ctx.ellipse(0, 0, 30, 12, 0, 0, Math.PI * 2);
-                    ctx.fill();
-                    
-                    ctx.fillStyle = '#3b82f6';
-                    ctx.beginPath();
-                    ctx.arc(10, 0, 5, 0, Math.PI * 2);
-                    ctx.fill();
-
-                    ctx.fillStyle = '#db2777';
-                    ctx.beginPath();
-                    ctx.moveTo(-10, -12);
-                    ctx.lineTo(-25, -20);
-                    ctx.lineTo(-5, -5);
-                    ctx.fill();
-                    ctx.beginPath();
-                    ctx.moveTo(-10, 12);
-                    ctx.lineTo(-25, 20);
-                    ctx.lineTo(-5, 5);
-                    ctx.fill();
-                }
-                ctx.restore();
-            };
-
-            const startGame = () => {
-                if (betAmount < 1 || betAmount > balance) {
-                    onGameEnd("Saldo insuficiente", "error");
-                    return;
-                }
-                onUpdateBalance(-betAmount);
-                setGameState('COUNTDOWN');
-                statusRef.current = 'COUNTDOWN';
-                setCountdown(3);
-                pointsRef.current = [];
-                setIsProcessingCashout(false);
-                setUserCashedOutAt(null); // Reseta o estado de saque
-                
-                let count = 3;
-                const timer = setInterval(() => {
-                    count--;
-                    setCountdown(count);
-                    if (count <= 0) {
-                        clearInterval(timer);
-                        launchRocket();
-                    }
-                }, 1000);
-            };
-
-            const launchRocket = () => {
-                setGameState('FLYING');
-                statusRef.current = 'FLYING';
-                setMultiplier(1.00);
-                startTimeRef.current = Date.now();
-                pointsRef.current = [{ t: 0, v: 0 }];
-                
-                const r = Math.random();
-                const houseEdge = 0.04; 
-                let crashAt = 1.00;
-                
-                if (r >= houseEdge) {
-                    crashAt = Math.max(1.00, (0.96) / (1 - r));
-                }
-                crashPointRef.current = crashAt;
-                
-                const loop = () => {
-                    if (statusRef.current === 'CRASHED' || statusRef.current === 'IDLE') return;
-
-                    const now = Date.now();
-                    const elapsedSeconds = (now - startTimeRef.current) / 1000;
-                    
-                    const currentMult = Math.exp(0.035 * elapsedSeconds);
-                    pointsRef.current.push({ t: elapsedSeconds, v: currentMult - 1 });
-                    
-                    setMultiplier(currentMult);
-                    drawGraph(currentMult, 'FLYING');
-
-                    // Lógica de Auto Cashout (se não tiver sacado ainda)
-                    if (showAutoCashout && currentMult >= autoCashout && statusRef.current === 'FLYING' && !cashoutTimerRef.current) {
-                        // Verificação extra para não sacar 2x
-                        handleSuccessCashout(currentMult);
-                    }
-
-                    if (currentMult >= crashPointRef.current) {
-                        setMultiplier(crashPointRef.current);
-                        handleCrash();
-                    } else {
-                        animationRef.current = requestAnimationFrame(loop);
-                    }
-                };
-                
+            if (currentMult >= crashPointRef.current) {
+                setMultiplier(crashPointRef.current);
+                handleCrash();
+            } else {
                 animationRef.current = requestAnimationFrame(loop);
-            };
+            }
+        };
+        
+        animationRef.current = requestAnimationFrame(loop);
+    };
 
-            const handleCrash = () => {
-                if (cashoutTimerRef.current) clearTimeout(cashoutTimerRef.current);
-                statusRef.current = 'CRASHED';
-                setGameState('CRASHED');
-                setIsProcessingCashout(false);
-                cancelAnimationFrame(animationRef.current);
-                drawGraph(crashPointRef.current, 'CRASHED');
-                
-                setHistory(prev => [crashPointRef.current, ...prev.slice(0, 4)]);
-                
-                // Mensagem de fim de jogo
-                // Se o usuário sacou, a mensagem já foi dada no saque
-                if (!cashoutTimerRef.current && !userCashedOutAt) {
-                     onGameEnd(`💥 Explodiu em ${crashPointRef.current.toFixed(2)}x! Você perdeu.`, "error");
-                }
-            };
+    const handleCrash = () => {
+        if (cashoutTimerRef.current) clearTimeout(cashoutTimerRef.current);
+        statusRef.current = 'CRASHED';
+        setGameState('CRASHED');
+        setIsProcessingCashout(false);
+        setUserCashedOutAt(null);        // <--- LIMPA O ESTADO DE CASHOUT
+        cancelAnimationFrame(animationRef.current);
+        drawGraph(crashPointRef.current, 'CRASHED');
+        
+        setHistory(prev => [crashPointRef.current, ...prev.slice(0, 4)]);
+        
+        // Mensagem de fim de jogo apenas se não houve cashout
+        if (!cashoutTimerRef.current && !userCashedOutAt) {
+            onGameEnd(`💥 Explodiu em ${crashPointRef.current.toFixed(2)}x! Você perdeu.`, "error");
+        }
+    };
 
-            const handleCashoutRequest = () => {
-                // Impede clique duplo ou saque se já explodiu
-                if (statusRef.current !== 'FLYING' || isProcessingCashout || userCashedOutAt) return;
-                
-                setIsProcessingCashout(true);
-                const lockedMultiplier = multiplier; 
-                
-                // Marca que o usuário já pediu o saque para evitar auto-cashout por cima
-                cashoutTimerRef.current = true; // Flag temporária
+    const handleCashoutRequest = () => {
+        if (statusRef.current !== 'FLYING' || isProcessingCashout || userCashedOutAt) return;
+        
+        setIsProcessingCashout(true);
+        const lockedMultiplier = multiplier; 
+        
+        cashoutTimerRef.current = true;
 
-                setTimeout(() => {
-                    // Verifica se ainda está voando (não crashou durante o delay)
-                    if (statusRef.current === 'FLYING') {
-                        handleSuccessCashout(lockedMultiplier);
-                    }
-                }, 500);
-            };
+        setTimeout(() => {
+            if (statusRef.current === 'FLYING') {
+                handleSuccessCashout(lockedMultiplier);
+            }
+        }, 500);
+    };
 
-            const handleSuccessCashout = (finalMult) => {
-                // NÃO MUDAMOS O statusRef.current para 'IDLE'. Deixamos continuar 'FLYING'.
-                // Apenas marcamos que o usuário saiu.
-                setIsProcessingCashout(false);
-                setUserCashedOutAt(finalMult); // Usuário saiu aqui
-                
-                const winAmount = betAmount * finalMult;
-                onUpdateBalance(winAmount);
-                onGameEnd(`✅ Você saiu em ${finalMult.toFixed(2)}x! Ganhou R$ ${winAmount.toFixed(2)}`, "success");
-            };
+    const handleSuccessCashout = (finalMult) => {
+        setIsProcessingCashout(false);
+        setUserCashedOutAt(finalMult);
+        
+        const winAmount = betAmount * finalMult;
+        onUpdateBalance(winAmount);
+        onGameEnd(`✅ Você saiu em ${finalMult.toFixed(2)}x! Ganhou R$ ${winAmount.toFixed(2)}`, "success");
+    };
 
-            useEffect(() => {
-                const handleResize = () => {
-                    if (statusRef.current === 'IDLE') drawGraph(1.00, 'IDLE');
-                };
-                window.addEventListener('resize', handleResize);
-                drawGraph(1.00, 'IDLE');
-                
-                return () => {
-                    window.removeEventListener('resize', handleResize);
-                    cancelAnimationFrame(animationRef.current);
-                };
-            }, []);
+    useEffect(() => {
+        const handleResize = () => {
+            if (statusRef.current === 'IDLE') drawGraph(1.00, 'IDLE');
+        };
+        window.addEventListener('resize', handleResize);
+        drawGraph(1.00, 'IDLE');
+        
+        return () => {
+            window.removeEventListener('resize', handleResize);
+            cancelAnimationFrame(animationRef.current);
+        };
+    }, []);
 
-            return (
-                <div className="max-w-6xl mx-auto space-y-6 animate-fade-in-up pb-10">
-                    <div className="glass-panel rounded-2xl p-6 border-gradient">
-                        <div className="flex flex-col lg:flex-row justify-between items-center gap-6">
-                            <div className="flex items-center gap-4">
-                                <div className="relative">
-                                    <div className="w-16 h-16 rounded-xl bg-gradient-to-br from-purple-600 to-pink-600 flex items-center justify-center animate-pulse-glow">
-                                        <i className="ph-rocket-launch text-2xl text-white"></i>
-                                    </div>
-                                    <div className="absolute -inset-2 bg-gradient-to-r from-purple-600 to-pink-600 rounded-xl blur opacity-30"></div>
-                                </div>
-                                <div>
-                                    <h2 className="text-3xl font-bold bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent">Foguete</h2>
-                                    <p className="text-gray-400">Saia antes que o foguete exploda.</p>
-                                </div>
+    return (
+        <div className="max-w-6xl mx-auto space-y-6 animate-fade-in-up pb-10">
+            <div className="glass-panel rounded-2xl p-6 border-gradient">
+                <div className="flex flex-col lg:flex-row justify-between items-center gap-6">
+                    <div className="flex items-center gap-4">
+                        <div className="relative">
+                            <div className="w-16 h-16 rounded-xl bg-gradient-to-br from-purple-600 to-pink-600 flex items-center justify-center animate-pulse-glow">
+                                <i className="ph-rocket-launch text-2xl text-white"></i>
                             </div>
-                            
-                            <div className="flex items-center gap-3 bg-gray-900/50 rounded-xl p-3 border border-gray-800 overflow-x-auto no-scrollbar max-w-full">
-                                <span className="text-xs text-gray-500 uppercase tracking-wider mr-2 whitespace-nowrap">Recentes:</span>
-                                <div className="flex gap-2">
-                                    {history.map((val, i) => (
-                                        <div key={i} className={`text-xs font-bold px-2 py-1 rounded min-w-[3rem] text-center ${val >= 2.0 ? 'bg-green-900/30 text-green-400 border border-green-800' : 'bg-gray-800 text-gray-400 border border-gray-700'}`}>
-                                            {val.toFixed(2)}x
-                                        </div>
+                            <div className="absolute -inset-2 bg-gradient-to-r from-purple-600 to-pink-600 rounded-xl blur opacity-30"></div>
+                        </div>
+                        <div>
+                            <h2 className="text-3xl font-bold bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent">Foguete</h2>
+                            <p className="text-gray-400">Saia antes que o foguete exploda.</p>
+                        </div>
+                    </div>
+                    
+                    <div className="flex items-center gap-3 bg-gray-900/50 rounded-xl p-3 border border-gray-800 overflow-x-auto no-scrollbar max-w-full">
+                        <span className="text-xs text-gray-500 uppercase tracking-wider mr-2 whitespace-nowrap">Recentes:</span>
+                        <div className="flex gap-2">
+                            {history.map((val, i) => (
+                                <div key={i} className={`text-xs font-bold px-2 py-1 rounded min-w-[3rem] text-center ${val >= 2.0 ? 'bg-green-900/30 text-green-400 border border-green-800' : 'bg-gray-800 text-gray-400 border border-gray-700'}`}>
+                                    {val.toFixed(2)}x
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <div className="space-y-6 order-2 lg:order-1">
+                    <div className="glass-panel rounded-2xl p-6">
+                        <div className="space-y-4">
+                            <div>
+                                <div className="flex justify-between mb-2">
+                                    <label className="text-sm text-gray-400">Valor da Aposta</label>
+                                    <span className="text-xs text-gray-500">Saldo: R$ {balance.toFixed(2)}</span>
+                                </div>
+                                <div className="relative">
+                                    <input 
+                                        type="number" 
+                                        min="1" 
+                                        max={balance} 
+                                        value={betAmount} 
+                                        onChange={(e) => handleBetChange(e.target.value)} 
+                                        disabled={gameState !== 'IDLE' && gameState !== 'CRASHED'}  // <--- AGORA PERMITE ALTERAR APÓS O CRASH
+                                        className="w-full bg-gray-900 border border-gray-700 rounded-xl py-3.5 pl-10 pr-4 text-white font-mono text-lg focus:border-purple-500 focus:ring-1 focus:ring-purple-500 outline-none transition-all disabled:opacity-50"
+                                    />
+                                    <i className="ph-currency-dollar absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"></i>
+                                </div>
+                                <div className="grid grid-cols-4 gap-2 mt-2">
+                                    {[10, 20, 50, 100].map((amount) => (
+                                        <button 
+                                            key={amount} 
+                                            onClick={() => handleBetChange(amount)} 
+                                            disabled={gameState !== 'IDLE' && gameState !== 'CRASHED'}  // <--- MESMA LÓGICA AQUI
+                                            className="py-2 rounded-lg text-xs font-bold bg-gray-800 hover:bg-gray-700 text-gray-300 transition-colors"
+                                        >
+                                            +{amount}
+                                        </button>
                                     ))}
                                 </div>
                             </div>
+
+                            <div className="bg-gray-800/50 p-3 rounded-xl border border-gray-700/50">
+                                <div className="flex items-center justify-between">
+                                    <div className="flex items-center gap-2">
+                                        <div className={`w-8 h-5 rounded-full relative cursor-pointer transition-colors ${showAutoCashout ? 'bg-purple-500' : 'bg-gray-600'}`} onClick={() => setShowAutoCashout(!showAutoCashout)}>
+                                            <div className={`absolute top-1 w-3 h-3 rounded-full bg-white transition-transform ${showAutoCashout ? 'left-4' : 'left-1'}`}></div>
+                                        </div>
+                                        <span className="text-sm text-gray-300">Auto Retirar</span>
+                                    </div>
+                                    {showAutoCashout && (
+                                        <div className="flex items-center gap-1">
+                                            <span className="text-xs text-gray-400">em</span>
+                                            <input type="number" step="0.1" value={autoCashout} onChange={(e) => setAutoCashout(parseFloat(e.target.value))} className="w-16 bg-gray-900 border border-gray-700 rounded px-2 py-1 text-right text-sm text-white font-mono"/>
+                                            <span className="text-xs text-purple-400 font-bold">x</span>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+
+                            <button 
+                                onClick={gameState === 'IDLE' || gameState === 'CRASHED' ? startGame : handleCashoutRequest}
+                                disabled={gameState === 'COUNTDOWN' || isProcessingCashout || userCashedOutAt !== null}
+                                className={`w-full py-4 rounded-xl font-bold text-lg uppercase tracking-wide transition-all transform active:scale-[0.98] shadow-lg
+                                    ${gameState === 'IDLE' || gameState === 'CRASHED'
+                                        ? 'bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white shadow-purple-900/40' 
+                                        : userCashedOutAt
+                                            ? 'bg-gray-700 text-green-400 border border-green-500/50'
+                                            : isProcessingCashout 
+                                                ? 'bg-gray-600 text-gray-300 cursor-wait'
+                                                : 'bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-400 hover:to-emerald-500 text-white shadow-emerald-900/40 animate-pulse-glow'
+                                    }`}
+                            >
+                                {gameState === 'IDLE' || gameState === 'CRASHED' ? 'Começar Jogo' : 
+                                 gameState === 'COUNTDOWN' ? 'Preparando...' : 
+                                 userCashedOutAt ? `SACADO EM ${userCashedOutAt.toFixed(2)}x` :
+                                 isProcessingCashout ? 'Sacando...' : 
+                                 `SACAR R$ ${(betAmount * multiplier).toFixed(2)}`}
+                            </button>
                         </div>
                     </div>
 
-                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                        <div className="space-y-6 order-2 lg:order-1">
-                            <div className="glass-panel rounded-2xl p-6">
-                                <div className="space-y-4">
-                                    <div>
-                                        <div className="flex justify-between mb-2">
-                                            <label className="text-sm text-gray-400">Valor da Aposta</label>
-                                            <span className="text-xs text-gray-500">Saldo: R$ {balance.toFixed(2)}</span>
-                                        </div>
-                                        <div className="relative">
-                                            <input type="number" min="1" max={balance} value={betAmount} onChange={(e) => handleBetChange(e.target.value)} disabled={gameState !== 'IDLE'} className="w-full bg-gray-900 border border-gray-700 rounded-xl py-3.5 pl-10 pr-4 text-white font-mono text-lg focus:border-purple-500 focus:ring-1 focus:ring-purple-500 outline-none transition-all disabled:opacity-50"/>
-                                            <i className="ph-currency-dollar absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"></i>
-                                        </div>
-                                        <div className="grid grid-cols-4 gap-2 mt-2">
-                                            {[10, 20, 50, 100].map((amount) => (
-                                                <button key={amount} onClick={() => handleBetChange(amount)} disabled={gameState !== 'IDLE'} className="py-2 rounded-lg text-xs font-bold bg-gray-800 hover:bg-gray-700 text-gray-300 transition-colors">+{amount}</button>
-                                            ))}
-                                        </div>
-                                    </div>
-
-                                    <div className="bg-gray-800/50 p-3 rounded-xl border border-gray-700/50">
-                                        <div className="flex items-center justify-between">
-                                            <div className="flex items-center gap-2">
-                                                <div className={`w-8 h-5 rounded-full relative cursor-pointer transition-colors ${showAutoCashout ? 'bg-purple-500' : 'bg-gray-600'}`} onClick={() => setShowAutoCashout(!showAutoCashout)}>
-                                                    <div className={`absolute top-1 w-3 h-3 rounded-full bg-white transition-transform ${showAutoCashout ? 'left-4' : 'left-1'}`}></div>
-                                                </div>
-                                                <span className="text-sm text-gray-300">Auto Retirar</span>
-                                            </div>
-                                            {showAutoCashout && (
-                                                <div className="flex items-center gap-1">
-                                                    <span className="text-xs text-gray-400">em</span>
-                                                    <input type="number" step="0.1" value={autoCashout} onChange={(e) => setAutoCashout(parseFloat(e.target.value))} className="w-16 bg-gray-900 border border-gray-700 rounded px-2 py-1 text-right text-sm text-white font-mono"/>
-                                                    <span className="text-xs text-purple-400 font-bold">x</span>
-                                                </div>
-                                            )}
-                                        </div>
-                                    </div>
-
-                                    <button 
-                                        onClick={gameState === 'IDLE' || gameState === 'CRASHED' ? startGame : handleCashoutRequest}
-                                        disabled={gameState === 'COUNTDOWN' || isProcessingCashout || userCashedOutAt !== null}
-                                        className={`w-full py-4 rounded-xl font-bold text-lg uppercase tracking-wide transition-all transform active:scale-[0.98] shadow-lg
-                                            ${gameState === 'IDLE' || gameState === 'CRASHED'
-                                                ? 'bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white shadow-purple-900/40' 
-                                                : userCashedOutAt
-                                                    ? 'bg-gray-700 text-green-400 border border-green-500/50' /* Estilo quando já sacou */
-                                                    : isProcessingCashout 
-                                                        ? 'bg-gray-600 text-gray-300 cursor-wait'
-                                                        : 'bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-400 hover:to-emerald-500 text-white shadow-emerald-900/40 animate-pulse-glow'
-                                            }`}
-                                    >
-                                        {gameState === 'IDLE' || gameState === 'CRASHED' ? 'Começar Jogo' : 
-                                         gameState === 'COUNTDOWN' ? 'Preparando...' : 
-                                         userCashedOutAt ? `SACADO EM ${userCashedOutAt.toFixed(2)}x` :
-                                         isProcessingCashout ? 'Sacando...' : 
-                                         `SACAR R$ ${(betAmount * multiplier).toFixed(2)}`}
-                                    </button>
-                                </div>
+                    <div className="glass-panel rounded-2xl p-5">
+                        <h4 className="text-sm font-bold text-gray-400 mb-3 uppercase tracking-wider flex items-center gap-2">
+                            <i className="ph-chart-bar"></i> Probabilidades
+                        </h4>
+                        <div className="space-y-2 text-sm">
+                            <div className="flex justify-between border-b border-gray-800 pb-2">
+                                <span className="text-gray-500">Crash Instantâneo</span>
+                                <span className="text-red-400 font-mono">1.00%</span>
                             </div>
-
-                            <div className="glass-panel rounded-2xl p-5">
-                                <h4 className="text-sm font-bold text-gray-400 mb-3 uppercase tracking-wider flex items-center gap-2">
-                                    <i className="ph-chart-bar"></i> Probabilidades
-                                </h4>
-                                <div className="space-y-2 text-sm">
-                                    <div className="flex justify-between border-b border-gray-800 pb-2">
-                                        <span className="text-gray-500">Crash Instantâneo</span>
-                                        <span className="text-red-400 font-mono">1.00%</span>
-                                    </div>
-                                    <div className="flex justify-between border-b border-gray-800 pb-2">
-                                        <span className="text-gray-500">Chance de 2.00x+</span>
-                                        <span className="text-purple-400 font-mono">49.50%</span>
-                                    </div>
-                                    <div className="flex justify-between">
-                                        <span className="text-gray-500">Lucro Máximo</span>
-                                        <span className="text-emerald-400 font-mono">R$ 10.000,00</span>
-                                    </div>
-                                </div>
+                            <div className="flex justify-between border-b border-gray-800 pb-2">
+                                <span className="text-gray-500">Chance de 2.00x+</span>
+                                <span className="text-purple-400 font-mono">49.50%</span>
                             </div>
-                        </div>
-                        
-                        <div className="lg:col-span-2 order-1 lg:order-2">
-                            <div className="glass-panel rounded-2xl p-1 overflow-hidden h-full flex flex-col shadow-2xl">
-                                <div className="relative w-full rounded-xl overflow-hidden bg-[#0a0a0a] min-h-[350px] lg:h-[500px]">
-                                    <canvas 
-                                        ref={canvasRef} 
-                                        className="w-full h-full absolute inset-0 block"
-                                    />
-                                    
-                                    <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none select-none">
-                                        {gameState === 'COUNTDOWN' && (
-                                            <div className="text-8xl font-bold font-mono text-white animate-bounce drop-shadow-[0_0_15px_rgba(255,255,255,0.5)]">
-                                                {countdown}
-                                            </div>
-                                        )}
-                                        
-                                        {(gameState === 'FLYING' || gameState === 'CRASHED') && (
-                                            <div className="flex flex-col items-center">
-                                                <div className={`text-6xl sm:text-8xl font-bold font-mono tracking-tighter drop-shadow-2xl transition-colors duration-200 ${gameState === 'CRASHED' ? 'text-red-500' : 'text-white'}`}>
-                                                    {multiplier.toFixed(2)}x
-                                                </div>
-                                                
-                                                {gameState === 'CRASHED' && (
-                                                    <div className="mt-4 px-6 py-2 bg-red-900/40 border border-red-500/50 rounded-full text-red-200 font-bold backdrop-blur-md animate-bounce">
-                                                        EXPLODIU EM {crashPointRef.current.toFixed(2)}x
-                                                    </div>
-                                                )}
-                                                
-                                                {gameState === 'FLYING' && (
-                                                    <div className="mt-4 text-purple-400 text-sm font-bold animate-pulse flex items-center gap-2 bg-black/30 px-3 py-1 rounded-full border border-purple-500/30">
-                                                        <div className="w-2 h-2 bg-purple-400 rounded-full"></div>
-                                                        AO VIVO
-                                                    </div>
-                                                )}
-
-                                                {/* Aviso de que você já saiu, mas o jogo continua */}
-                                                {userCashedOutAt && gameState === 'FLYING' && (
-                                                    <div className="mt-2 text-green-400 text-xs font-bold bg-green-900/30 px-3 py-1 rounded-full border border-green-500/30">
-                                                        VOCÊ SAIU EM {userCashedOutAt.toFixed(2)}x
-                                                    </div>
-                                                )}
-                                            </div>
-                                        )}
-                                        
-                                        {gameState === 'IDLE' && (
-                                            <div className="flex flex-col items-center gap-4">
-                                                <div className="w-20 h-20 rounded-full bg-purple-900/20 border border-purple-500/30 flex items-center justify-center animate-pulse">
-                                                    <i className="ph-rocket text-4xl text-purple-400"></i>
-                                                </div>
-                                            </div>
-                                        )}
-                                    </div>
-                                </div>
+                            <div className="flex justify-between">
+                                <span className="text-gray-500">Lucro Máximo</span>
+                                <span className="text-emerald-400 font-mono">R$ 10.000,00</span>
                             </div>
                         </div>
                     </div>
                 </div>
-            );
-        };
+                
+                <div className="lg:col-span-2 order-1 lg:order-2">
+                    <div className="glass-panel rounded-2xl p-1 overflow-hidden h-full flex flex-col shadow-2xl">
+                        <div className="relative w-full rounded-xl overflow-hidden bg-[#0a0a0a] min-h-[350px] lg:h-[500px]">
+                            <canvas 
+                                ref={canvasRef} 
+                                className="w-full h-full absolute inset-0 block"
+                            />
+                            
+                            <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none select-none">
+                                {gameState === 'COUNTDOWN' && (
+                                    <div className="text-8xl font-bold font-mono text-white animate-bounce drop-shadow-[0_0_15px_rgba(255,255,255,0.5)]">
+                                        {countdown}
+                                    </div>
+                                )}
+                                
+                                {(gameState === 'FLYING' || gameState === 'CRASHED') && (
+                                    <div className="flex flex-col items-center">
+                                        <div className={`text-6xl sm:text-8xl font-bold font-mono tracking-tighter drop-shadow-2xl transition-colors duration-200 ${gameState === 'CRASHED' ? 'text-red-500' : 'text-white'}`}>
+                                            {multiplier.toFixed(2)}x
+                                        </div>
+                                        
+                                        {gameState === 'CRASHED' && (
+                                            <div className="mt-4 px-6 py-2 bg-red-900/40 border border-red-500/50 rounded-full text-red-200 font-bold backdrop-blur-md animate-bounce">
+                                                EXPLODIU EM {crashPointRef.current.toFixed(2)}x
+                                            </div>
+                                        )}
+                                        
+                                        {gameState === 'FLYING' && (
+                                            <div className="mt-4 text-purple-400 text-sm font-bold animate-pulse flex items-center gap-2 bg-black/30 px-3 py-1 rounded-full border border-purple-500/30">
+                                                <div className="w-2 h-2 bg-purple-400 rounded-full"></div>
+                                                AO VIVO
+                                            </div>
+                                        )}
+
+                                        {userCashedOutAt && gameState === 'FLYING' && (
+                                            <div className="mt-2 text-green-400 text-xs font-bold bg-green-900/30 px-3 py-1 rounded-full border border-green-500/30">
+                                                VOCÊ SAIU EM {userCashedOutAt.toFixed(2)}x
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+                                
+                                {gameState === 'IDLE' && (
+                                    <div className="flex flex-col items-center gap-4">
+                                        <div className="w-20 h-20 rounded-full bg-purple-900/20 border border-purple-500/30 flex items-center justify-center animate-pulse">
+                                            <i className="ph-rocket text-4xl text-purple-400"></i>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+};
 
 /* ============= DOUBLE GAME (MOBILE OPTIMIZED) ============= */
         const DoubleGame = ({ balance, onUpdateBalance, onGameEnd }) => {
@@ -1853,6 +1861,337 @@
             );
         };
 
+/* ============= PLINKO GAME (VISUAL PREMIUM & FÍSICA REALISTA) ============= */
+const PlinkoGame = ({ balance, onUpdateBalance, onGameEnd }) => {
+    const [betAmount, setBetAmount] = useState(10);
+    const [lastMultipliers, setLastMultipliers] = useState([]);
+    
+    // Configuração do Jogo (16 Linhas - High Risk)
+    // Multiplicadores espelhados: Bordas pagam 25x, Centro paga 0.1x
+    const MULTIPLIERS = [25, 12, 10, 5, 2, 1.5, 1, 0.25, 0.1, 0.25, 1, 1.5, 2, 5, 10, 12, 25];
+    
+    // Cores para os multiplicadores (Gradiente do Vermelho -> Amarelo -> Vermelho)
+    const getMultiplierColor = (index, total) => {
+        const center = Math.floor(total / 2);
+        const dist = Math.abs(index - center);
+        // Distância do centro determina a cor
+        if (dist > 6) return '#ef4444'; // Vermelho (Extremo)
+        if (dist > 3) return '#f97316'; // Laranja (Médio)
+        return '#eab308'; // Amarelo (Baixo)
+    };
+
+    const canvasRef = useRef(null);
+    const ballsRef = useRef([]); 
+    const animationRef = useRef(null);
+    const engineRef = useRef({ lastTime: 0 });
+
+    const handleBetChange = (value) => {
+        const num = parseFloat(value);
+        if (isNaN(num) || num < 1) setBetAmount(1);
+        else if (num > balance) setBetAmount(balance);
+        else setBetAmount(num);
+    };
+
+    // Função de Física e Renderização
+    const update = (time) => {
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+        const ctx = canvas.getContext('2d');
+        
+        // Ajuste de DPI
+        const dpr = window.devicePixelRatio || 1;
+        const rect = canvas.getBoundingClientRect();
+        
+        // Redimensionar se necessário (Responsivo)
+        if (canvas.width !== rect.width * dpr || canvas.height !== rect.height * dpr) {
+            canvas.width = rect.width * dpr;
+            canvas.height = rect.height * dpr;
+            ctx.scale(dpr, dpr);
+        }
+
+        const width = rect.width;
+        const height = rect.height;
+
+        // 1. Fundo (Azul Escuro Profundo estilo Stake)
+        ctx.clearRect(0, 0, width, height);
+        ctx.fillStyle = '#1a1a2e'; 
+        ctx.fillRect(0, 0, width, height);
+
+        // Configurações da Pirâmide
+        const rows = 16;
+        const paddingTop = 50;
+        const paddingBottom = 50;
+        const availableHeight = height - paddingTop - paddingBottom;
+        const gap = availableHeight / rows; // Espaço entre linhas
+        const pegRadius = 3;
+
+        // 2. Desenhar Pinos (Brilho Branco)
+        ctx.fillStyle = 'white';
+        ctx.shadowColor = 'rgba(255, 255, 255, 0.6)';
+        ctx.shadowBlur = 6;
+        
+        for (let row = 0; row < rows; row++) {
+            for (let col = 0; col <= row + 2; col++) {
+                // Cálculo X para centralizar a pirâmide
+                const x = width / 2 + (col - (row + 2) / 2) * gap;
+                const y = paddingTop + row * gap;
+                
+                ctx.beginPath();
+                ctx.arc(x, y, pegRadius, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+        ctx.shadowBlur = 0; // Reset glow
+
+        // 3. Desenhar Multiplicadores (Rodapé)
+        const bucketY = paddingTop + rows * gap + 10;
+        const bucketWidth = gap - 4; // Espaço visual
+        const totalBuckets = MULTIPLIERS.length;
+
+        MULTIPLIERS.forEach((mult, i) => {
+            // Calcular X do balde (alinhado com a base da pirâmide)
+            // A última linha de pinos tem 'rows + 2' colunas. 
+            // Os baldes ficam ENTRE os pinos da base imaginária.
+            const x = width / 2 + (i - (totalBuckets - 1) / 2) * gap;
+            
+            const color = getMultiplierColor(i, totalBuckets);
+            
+            // Caixa do Multiplicador
+            ctx.fillStyle = color;
+            
+            // Efeito de sombra interna sutil
+            ctx.beginPath();
+            ctx.roundRect(x - bucketWidth/2, bucketY, bucketWidth, 25, 4);
+            ctx.fill();
+            
+            // Brilho na borda superior (efeito 3D)
+            ctx.fillStyle = 'rgba(255,255,255,0.3)';
+            ctx.fillRect(x - bucketWidth/2, bucketY, bucketWidth, 2);
+
+            // Texto do Multiplicador
+            ctx.fillStyle = '#000'; // Texto preto para contraste
+            ctx.font = 'bold 10px Inter';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(`${mult}x`, x, bucketY + 12.5);
+        });
+
+        // 4. Atualizar Física das Bolas
+        // Se o tempo entre frames for muito grande, limita para evitar bugs de física
+        const dt = Math.min((time - engineRef.current.lastTime), 50) / 1000; 
+        engineRef.current.lastTime = time;
+
+        for (let i = ballsRef.current.length - 1; i >= 0; i--) {
+            const ball = ballsRef.current[i];
+            
+            // Física
+            ball.vy += 800 * dt; // Gravidade
+            ball.y += ball.vy * dt;
+            ball.x += ball.vx * dt;
+            
+            // Colisão com Pinos (Simulada para seguir o caminho)
+            // Descobrir em qual linha a bola está
+            const estimatedRow = Math.floor((ball.y - paddingTop + gap/2) / gap);
+            
+            // Se mudou de linha e ainda tem caminho a percorrer
+            if (estimatedRow > ball.currentRow && ball.pathIndex < ball.path.length) {
+                ball.currentRow = estimatedRow;
+                
+                // Pega a decisão pré-calculada (-0.5 esq ou 0.5 dir)
+                const direction = ball.path[ball.pathIndex]; 
+                ball.pathIndex++;
+
+                // Aplica força lateral "física"
+                // O 'vx' recebe um impulso na direção do caminho
+                // Também adicionamos um pequeno 'vy' negativo para simular o quique no pino
+                const bounceForceX = direction * (gap * 4); // Força lateral ajustada pelo tamanho do gap
+                
+                // Suavização: interpola a velocidade atual com a nova
+                ball.vx = ball.vx * 0.5 + bounceForceX; 
+                ball.vy *= 0.6; // Perde energia no impacto vertical (atrito)
+                
+                // Pequeno ajuste de posição X para garantir que visualmente bata no pino
+                // (Opcional, mas ajuda no visual)
+            }
+
+            // Desenhar Bola
+            ctx.beginPath();
+            ctx.arc(ball.x, ball.y, 6, 0, Math.PI * 2);
+            ctx.fillStyle = '#f43f5e'; // Rose 500 (Bolinha rosa/vermelha)
+            ctx.fill();
+            // Brilho da bola
+            ctx.shadowColor = '#f43f5e';
+            ctx.shadowBlur = 10;
+            ctx.fill();
+            ctx.shadowBlur = 0;
+
+            // Verificar Fim (Colisão com Balde)
+            if (ball.y > bucketY) {
+                // Calcular onde caiu baseado na posição X real
+                const finalXRelative = ball.x - width / 2;
+                // Converter px para índice do array
+                const indexFloat = (finalXRelative / gap) + (totalBuckets - 1) / 2;
+                let finalIndex = Math.round(indexFloat);
+                
+                // Proteção contra NaN/Undefined (Limites do array)
+                finalIndex = Math.max(0, Math.min(finalIndex, MULTIPLIERS.length - 1));
+                
+                const mult = MULTIPLIERS[finalIndex];
+                
+                // Lógica de Pagamento
+                const win = ball.betValue * mult;
+                
+                // Atualiza saldo visualmente
+                onUpdateBalance(win); // Adiciona o prêmio (A aposta já foi descontada no drop)
+                
+                // Adiciona ao histórico
+                setLastMultipliers(prev => [mult, ...prev].slice(0, 5));
+
+                if (mult >= 10) {
+                    onGameEnd(`🎯 PLINKO! ${mult}x! Ganhou R$ ${win.toFixed(2)}`, "success");
+                } else if (mult < 1) {
+                    // Opcional: Feedback visual de perda
+                }
+
+                // Remover bola
+                ballsRef.current.splice(i, 1);
+            }
+        }
+
+        animationRef.current = requestAnimationFrame(update);
+    };
+
+    const dropBall = () => {
+        if (betAmount < 1 || betAmount > balance) {
+            onGameEnd("Saldo insuficiente", "error");
+            return;
+        }
+        
+        // Desconta a aposta IMEDIATAMENTE
+        onUpdateBalance(-betAmount);
+        
+        // Gerar Caminho Pré-determinado (Lógica da Casa)
+        // 16 linhas de decisão. 
+        // 0 = esquerda, 1 = direita.
+        const path = [];
+        for(let i=0; i<16; i++) {
+            // 50% de chance para cada lado (Distribuição Normal natural)
+            const dir = Math.random() > 0.5 ? 0.5 : -0.5;
+            path.push(dir);
+        }
+        
+        const canvas = canvasRef.current;
+        const width = canvas ? canvas.width / (window.devicePixelRatio||1) : 300;
+        
+        // Adiciona bola à simulação
+        ballsRef.current.push({
+            x: width / 2 + (Math.random() * 2 - 1), // Leve jitter inicial
+            y: 20,
+            vx: 0,
+            vy: 0,
+            currentRow: -1,
+            pathIndex: 0,
+            path: path,
+            betValue: betAmount // Guarda o valor da aposta NA BOLA
+        });
+    };
+
+    useEffect(() => {
+        engineRef.current.lastTime = performance.now();
+        animationRef.current = requestAnimationFrame(update);
+        return () => cancelAnimationFrame(animationRef.current);
+    }, []);
+
+    return (
+        <div className="max-w-6xl mx-auto space-y-6 animate-fade-in-up pb-10">
+            {/* Header Padronizado */}
+            <div className="glass-panel rounded-2xl p-6 border-gradient">
+                <div className="flex flex-col lg:flex-row justify-between items-center gap-6">
+                    <div className="flex items-center gap-4">
+                        <div className="relative">
+                            <div className="w-16 h-16 rounded-xl bg-gradient-to-br from-pink-600 to-rose-600 flex items-center justify-center animate-pulse-glow">
+                                <i className="ph-dots-nine text-2xl text-white"></i>
+                            </div>
+                            <div className="absolute -inset-2 bg-gradient-to-r from-pink-600 to-rose-600 rounded-xl blur opacity-30"></div>
+                        </div>
+                        <div>
+                            <h2 className="text-3xl font-bold bg-gradient-to-r from-pink-400 to-rose-400 bg-clip-text text-transparent">Plinko</h2>
+                            <p className="text-gray-400">Risco Alto • 16 Linhas • Max 25x</p>
+                        </div>
+                    </div>
+                    
+                    {/* Histórico Recente */}
+                    <div className="flex items-center gap-2 bg-gray-900/50 rounded-xl p-3 border border-gray-800">
+                        <span className="text-xs text-gray-500 uppercase tracking-wider mr-2">Drops:</span>
+                        <div className="flex gap-1">
+                            {lastMultipliers.map((mult, i) => {
+                                let colorClass = 'bg-yellow-500 text-black'; // Padrão
+                                if(mult >= 10) colorClass = 'bg-red-500 text-white';
+                                else if(mult >= 2) colorClass = 'bg-orange-500 text-white';
+                                else if(mult < 1) colorClass = 'bg-gray-700 text-gray-300';
+                                
+                                return (
+                                    <div key={i} className={`w-10 h-8 rounded flex items-center justify-center text-xs font-bold ${colorClass}`}>
+                                        {mult}x
+                                    </div>
+                                )
+                            })}
+                            {lastMultipliers.length === 0 && <span className="text-xs text-gray-600">--</span>}
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                {/* Controles (Baixo no mobile) */}
+                <div className="space-y-6 order-2 lg:order-1">
+                    <div className="glass-panel rounded-2xl p-6">
+                        <h3 className="text-lg font-bold mb-4 flex items-center gap-2"><i className="ph-coins text-amber-400"></i>Aposta</h3>
+                        <div className="space-y-4">
+                            <div>
+                                <label className="block text-sm text-gray-400 mb-2">Valor (R$)</label>
+                                <div className="relative">
+                                    <input type="number" min="1" max={balance} value={betAmount} onChange={(e) => handleBetChange(e.target.value)} className="w-full bg-gray-900/50 border border-gray-700 rounded-xl py-3 pl-10 pr-4 text-white font-mono focus:border-pink-500 focus:ring-2 focus:ring-pink-500/50 outline-none transition-all"/>
+                                    <i className="ph-coin-vertical absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"></i>
+                                </div>
+                                <div className="grid grid-cols-4 gap-2 mt-3">
+                                    {[10, 25, 50, 100].map((amount) => (
+                                        <button key={amount} onClick={() => handleBetChange(amount)} className="py-2 rounded-lg text-sm font-medium transition-all hover:bg-gray-800 bg-gray-900/50 border border-gray-700">R$ {amount}</button>
+                                    ))}
+                                </div>
+                            </div>
+                            
+                            <button onClick={dropBall} className="w-full py-4 rounded-xl bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-400 hover:to-emerald-500 text-white font-bold text-lg uppercase tracking-wider transition-all transform active:scale-[0.98] shadow-lg shadow-emerald-900/30">
+                                APOSTAR
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div className="glass-panel rounded-2xl p-6">
+                        <h3 className="text-lg font-bold mb-4 flex items-center gap-2"><i className="ph-info text-blue-400"></i>Como Jogar</h3>
+                        <ul className="space-y-2 text-sm text-gray-400">
+                            <li>• A bola cai através de 16 linhas de pinos.</li>
+                            <li>• Quanto mais longe do centro cair, maior o prêmio.</li>
+                            <li>• O multiplicador máximo é 110x nas bordas.</li>
+                            <li>• O centro paga apenas 0.3x (você perde parte da aposta).</li>
+                        </ul>
+                    </div>
+                </div>
+
+                {/* Jogo (Topo no mobile) */}
+                <div className="lg:col-span-2 order-1 lg:order-2">
+                    <div className="glass-panel rounded-2xl p-1 overflow-hidden h-full flex flex-col items-center justify-center bg-[#1a1a2e] shadow-2xl border border-white/5">
+                        {/* Container com altura fixa/minima para garantir visibilidade */}
+                        <div className="relative w-full h-[450px] lg:h-[600px]">
+                            <canvas ref={canvasRef} className="w-full h-full block" />
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+};
+
         /* ============= LOBBY ============= */
         const Lobby = ({ setPage }) => {
             const games = [
@@ -1897,6 +2236,14 @@
                     color: 'blue'
                 },
                 {
+                    id: 'GAME_PLINKO',
+                    title: 'Plinko',
+                    description: 'Solte a bola na pirâmide. Busque os multiplicadores de 110x nas bordas!',
+                    icon: 'ph-dots-nine',
+                    gradient: 'from-pink-500 to-rose-500',
+                    color: 'pink'
+                },
+                {
                     id: 'GAME_JACKPOT',
                     title: 'Fortune Tiger',
                     description: 'Caça-níquel clássico. 3 linhas, multiplicadores até 15x.',
@@ -1923,7 +2270,7 @@
                                     <span className="text-white">Com novas mecânicas</span>
                                 </h1>
                                 <p className="text-gray-400 text-lg mb-8 max-w-xl">
-                                    A BetZitos é Casa de Apostas do André Young, e chegou para mostrar como as plataformas de casas de aposta funcionam, aqui é só diversão.
+                                    A BetZitos é Casa de Apostas do alegria, e chegou para mostrar como as plataformas de casas de aposta funcionam, aqui é só diversão.
                                 </p>
                                 
                                 <div className="flex flex-wrap gap-4">
@@ -2046,35 +2393,51 @@ const PromoCodes = ({ balance, onUpdateBalance, onGameEnd }) => {
             isUsed: false
         },
         { 
-            code: "BRAZINO", 
-            reward: 7.77, 
-            description: "É o Brazino, jogo da galera.",
+            code: "LIZ", 
+            reward: 15.00, 
+            description: "Número 15.",
             type: "money",
             expires: "27/12/2067",
             isUsed: false
         },
         { 
-            code: "COSMEVIDRO", 
-            reward: 7.00, 
-            description: "O rei do Kudoeiro.",
+            code: "REVIVE", 
+            reward: 50.00, 
+            description: "",
             type: "money",
-            expires: "30/06/2026",
+            expires: "27/12/2067",
             isUsed: false
         },
         { 
-            code: "AVESTRUZ", 
-            reward: 10.00, 
-            description: "Não é um avestruz.",
+            code: "PRIME", 
+            reward: 1000.00, 
+            description: "",
             type: "money",
-            expires: "15/08/2026",
+            expires: "27/12/2067",
             isUsed: false
         },
         { 
-            code: "SPORE", 
-            reward: 5.00, 
-            description: "Saudades dos vídeos de Spore do André.",
+            code: "LETICIA", 
+            reward: 20.00, 
+            description: "Overrated.",
             type: "money",
-            expires: "31/07/2026",
+            expires: "30/06/2066",
+            isUsed: false
+        },
+        { 
+            code: "PAGODIAS", 
+            reward: 30.00, 
+            description: "Pagodias.",
+            type: "money",
+            expires: "15/08/2066",
+            isUsed: false
+        },
+        { 
+            code: "PONTOSFOFOS", 
+            reward: 50.00, 
+            description: "Os pontos fofinhos.",
+            type: "money",
+            expires: "31/07/2066",
             isUsed: false
         },
         { 
@@ -2090,15 +2453,15 @@ const PromoCodes = ({ balance, onUpdateBalance, onGameEnd }) => {
             reward: 30, 
             description: "Sendo feliz em dobro.",
             type: "money",
-            expires: "27/09/2026",
+            expires: "27/09/2066",
             isUsed: false
         },
         { 
-            code: "ANDREZITOS", 
-            reward: 25, 
-            description: "Andrezitos Gameplays.",
+            code: "CAMARA", 
+            reward: -50, 
+            description: "Não.",
             type: "money",
-            expires: "27/09/2026",
+            expires: "27/09/2066",
             isUsed: false
         },
         { 
@@ -2106,23 +2469,135 @@ const PromoCodes = ({ balance, onUpdateBalance, onGameEnd }) => {
             reward: 20, 
             description: "Obrigado, apoiador.",
             type: "money",
-            expires: "27/09/2026",
+            expires: "27/09/2066",
             isUsed: false
         },
         { 
             code: "67", 
-            reward: 6.7, 
+            reward: 67.0, 
             description: "67",
             type: "money",
             expires: "27/09/2067",
             isUsed: false
         },
         { 
-            code: "YOUNG", 
-            reward: 15, 
-            description: "Young (ENG) => Novo (PT-BR).",
+            code: "SOPHIA", 
+            reward: 70, 
+            description: "Japoloira.",
             type: "money",
-            expires: "27/09/2027",
+            expires: "27/09/2067",
+            isUsed: false
+        },
+        { 
+            code: "BERTAGLIA", 
+            reward: 25, 
+            description: "Conversa mais que minha mãe no telefone.",
+            type: "money",
+            expires: "27/09/2067",
+            isUsed: false
+        },
+        { 
+            code: "DUDAJORGE", 
+            reward: 60, 
+            description: "Clara Jorge?",
+            type: "money",
+            expires: "27/09/2067",
+            isUsed: false
+        },
+        { 
+            code: "CLARAJORGE", 
+            reward: 50, 
+            description: "Duda Jorge?",
+            type: "money",
+            expires: "27/09/2067",
+            isUsed: false
+        },
+        { 
+            code: "VALLINO", 
+            reward: 170, 
+            description: "...",
+            type: "money",
+            expires: "27/09/2067",
+            isUsed: false
+        },
+        { 
+            code: "SISMAN", 
+            reward: 90, 
+            description: "OU OU OU OU EI EI EI OU OU OU",
+            type: "money",
+            expires: "27/09/2067",
+            isUsed: false
+        },
+        { 
+            code: "SHIRLEY", 
+            reward: 50, 
+            description: "As odds bateram!!!",
+            type: "money",
+            expires: "27/09/2067",
+            isUsed: false
+        },
+        { 
+            code: "MEJORADO", 
+            reward: 500, 
+            description: "Alerta de Mejorado!!!",
+            type: "money",
+            expires: "27/09/2067",
+            isUsed: false
+        },
+        { 
+            code: "NORDESTINO", 
+            reward: 10, 
+            description: "Cuzcuz.",
+            type: "money",
+            expires: "27/09/2067",
+            isUsed: false
+        },
+        { 
+            code: "OVERRATED", 
+            reward: 100, 
+            description: "Muito overrated.",
+            type: "money",
+            expires: "27/09/2067",
+            isUsed: false
+        },
+        { 
+            code: "LARISSA", 
+            reward: 100, 
+            description: "",
+            type: "money",
+            expires: "27/09/2067",
+            isUsed: false
+        },
+        { 
+            code: "DIAS", 
+            reward: 100, 
+            description: "",
+            type: "money",
+            expires: "27/09/2067",
+            isUsed: false
+        },
+        { 
+            code: "MONTEIRO", 
+            reward: 50, 
+            description: "Melhor nem falar nada.",
+            type: "money",
+            expires: "27/09/2067",
+            isUsed: false
+        },
+        { 
+            code: "EDUCA", 
+            reward: 100, 
+            description: "Os pontos fofos.",
+            type: "money",
+            expires: "27/09/2067",
+            isUsed: false
+        },
+        { 
+            code: "CELLI", 
+            reward: 100, 
+            description: "Xelly.",
+            type: "money",
+            expires: "27/09/2067",
             isUsed: false
         },
         { 
@@ -2130,7 +2605,7 @@ const PromoCodes = ({ balance, onUpdateBalance, onGameEnd }) => {
             reward: 10.00, 
             description: "Neymar Jr.",
             type: "money",
-            expires: "31/12/2026",
+            expires: "31/12/2066",
             isUsed: false
         }
     ]);
@@ -2483,6 +2958,8 @@ const App = () => {
                 return <Lobby setPage={setCurrentPage} />;
             case 'GAME_CRASH':
                 return <CrashGame balance={balance} onUpdateBalance={handleUpdateBalance} onGameEnd={handleGameEnd} />;
+            case 'GAME_PLINKO':
+                return <PlinkoGame balance={balance} onUpdateBalance={handleUpdateBalance} onGameEnd={handleGameEnd} />;
             case 'GAME_DOUBLE':
                 return <DoubleGame balance={balance} onUpdateBalance={handleUpdateBalance} onGameEnd={handleGameEnd} />;
             case 'GAME_ROULETTE':
@@ -2545,7 +3022,7 @@ const App = () => {
                 
                 {/* Footer removido no mobile para economizar espaço, visível só desktop se quiser */}
                 <footer className="hidden lg:block mt-8 px-6 py-4 border-t border-gray-800/50 text-center text-gray-500 text-sm">
-                    <p>BetZitos - Simulador Educacional do André Young</p>
+                    <p>BetZitos - Simulador Educacional da alegria</p>
                 </footer>
             </div>
             
